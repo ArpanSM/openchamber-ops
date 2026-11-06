@@ -589,6 +589,11 @@ var parsePmon = (text) => {
 };
 var createSystemCollector = () => {
   let previousTimes = [];
+  let zramCache = null;
+  let swapsCache = null;
+  let tempCache = null;
+  let gpuProcCache = null;
+  const now = () => Date.now();
   return {
     prime: async () => {
       previousTimes = os2.cpus().map((cpu) => cpu.times);
@@ -599,6 +604,10 @@ var createSystemCollector = () => {
       previousTimes = times;
       if (!usage) return unavailable("failed");
       const load = os2.loadavg();
+      const at = now();
+      if (!tempCache || at - tempCache.at >= 5e3) {
+        tempCache = { at, value: await readCpuTemp() };
+      }
       return {
         status: "ok",
         total: usage.total,
@@ -607,23 +616,28 @@ var createSystemCollector = () => {
         cores: times.length,
         model: os2.cpus()[0]?.model.trim() || null,
         freqMhz: os2.cpus()[0]?.speed || null,
-        tempC: await readCpuTemp()
+        tempC: tempCache.value
       };
     },
     memory: async () => {
       const info = parseMeminfo(await readText("/proc/meminfo") ?? "");
       if (!info) return unavailable("failed");
-      const zramResult = await run(["zramctl", "/usr/sbin/zramctl"], ["--bytes", "--noheadings", "/dev/zram0"]);
-      const zram = zramResult.ok ? parseZram(zramResult.stdout) : null;
-      const swaps = parseSwaps(await readText("/proc/swaps") ?? "");
+      const at = now();
+      if (!zramCache || at - zramCache.at >= 1e4) {
+        const zramResult = await run(["zramctl", "/usr/sbin/zramctl"], ["--bytes", "--noheadings", "/dev/zram0"]);
+        zramCache = { at, value: zramResult.ok ? parseZram(zramResult.stdout) : null };
+      }
+      if (!swapsCache || at - swapsCache.at >= 1e4) {
+        swapsCache = { at, value: parseSwaps(await readText("/proc/swaps") ?? "") };
+      }
       return {
         status: "ok",
         used: info.total - info.available,
         total: info.total,
         swapUsed: info.swapTotal > 0 ? info.swapTotal - info.swapFree : null,
         swapTotal: info.swapTotal > 0 ? info.swapTotal : null,
-        zram,
-        swapDevices: swaps
+        zram: zramCache.value,
+        swapDevices: swapsCache.value
       };
     },
     gpu: async () => {
@@ -660,11 +674,13 @@ var createSystemCollector = () => {
         });
         if (rows.length >= 24) break;
       }
-      const [pmon, ...statuses] = await Promise.all([
-        run(["nvidia-smi", "/usr/bin/nvidia-smi"], ["pmon", "-c", "1"], 4e3),
-        ...rows.map((row) => readText(`/proc/${row.pid}/status`))
-      ]);
-      const gpuMap = pmon.ok ? parsePmon(pmon.stdout) : /* @__PURE__ */ new Map();
+      const at = now();
+      if (!gpuProcCache || at - gpuProcCache.at >= 6e3) {
+        const pmon = await run(["nvidia-smi", "/usr/bin/nvidia-smi"], ["pmon", "-c", "1"], 4e3);
+        gpuProcCache = { at, value: pmon.ok ? parsePmon(pmon.stdout) : /* @__PURE__ */ new Map() };
+      }
+      const gpuMap = gpuProcCache.value;
+      const statuses = await Promise.all(rows.map((row) => readText(`/proc/${row.pid}/status`)));
       rows.forEach((row, index) => {
         const status = statuses[index] ?? "";
         const swapMatch = /^VmSwap:\s+(\d+) kB/m.exec(status);
