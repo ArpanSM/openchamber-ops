@@ -32,7 +32,19 @@ The native OpenChamber mobile app does **not** load extension panels yet. The br
 
 - **Tablet**: open the OpenChamber web URL in the browser. The tablet layout already uses the desktop rail.
 - **Phone**: open the same URL with `?surface=desktop` (for example `http://192.168.1.16:8080/?surface=desktop`). The right rail and panel fill the screen; add it to the home screen for a one-tap shortcut.
-- The OpenChamber server listens on `127.0.0.1` by default. To reach it from another device, use **Settings → External tunnel** (needs a UI password and an app restart), Tailscale Serve, or a small LAN forwarder. The native app's private relay does not serve the PWA.
+- The OpenChamber server listens on `127.0.0.1` by default. To reach it from another device, use **Settings → External tunnel** (needs a UI password and an app restart), Tailscale Serve, or the small LAN forwarder in `scripts/lan-forward.mjs`. The native app's private relay does not serve the PWA.
+
+### LAN forwarder (optional)
+
+`scripts/lan-forward.mjs` forwards a LAN port to the desktop app's loopback port so a phone or tablet on the same network can open the browser UI. It is a raw TCP proxy and adds no authentication, so only run it on a network you trust.
+
+```bash
+node scripts/lan-forward.mjs
+# or
+LISTEN_PORT=8080 TARGET_PORT=57123 node scripts/lan-forward.mjs
+```
+
+`scripts/oc-lan-forward.service.example` is a systemd user unit for keeping it running.
 
 ![Ops on a phone-sized browser](docs/phone.png)
 

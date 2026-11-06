@@ -1,0 +1,17 @@
+[Unit]
+Description=OpenChamber LAN forwarder (0.0.0.0:8080 -> 127.0.0.1:57123)
+Documentation=https://github.com/ArpanSM/openchamber-ops
+After=network.target
+
+[Service]
+Type=simple
+# Adjust the node path and the checkout path for your machine.
+ExecStart=%h/.local/bin/node %h/openchamber-ops/scripts/lan-forward.mjs
+Restart=on-failure
+RestartSec=3
+Environment=LISTEN_PORT=8080
+Environment=TARGET_HOST=127.0.0.1
+Environment=TARGET_PORT=57123
+
+[Install]
+WantedBy=default.target
