@@ -1,0 +1,49 @@
+{
+  "name": "openchamber-ops",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "OpenChamber extension: machine vitals, ocguard memory state, jobs, processes and guard history in one rail panel.",
+  "license": "MIT",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm run build"
+  },
+  "devDependencies": {
+    "@openchamber/sdk": "^2.6.1",
+    "@types/node": "^24.0.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.9.0"
+  },
+  "openchamber": {
+    "apiVersion": 1,
+    "engines": {
+      "openchamber": ">=2.0.1"
+    },
+    "contributes": {
+      "panel": {
+        "id": "ops",
+        "name": "Ops",
+        "icon": "icon.svg",
+        "entry": "dist/panel/index.html"
+      },
+      "statusSection": {
+        "entry": "dist/status/index.html",
+        "title": "Ops",
+        "height": 96
+      },
+      "service": {
+        "entry": "dist/service/main.js",
+        "runtime": "host",
+        "permissions": {
+          "exec": [
+            "nvidia-smi",
+            "ps",
+            "zramctl"
+          ]
+        }
+      }
+    }
+  }
+}

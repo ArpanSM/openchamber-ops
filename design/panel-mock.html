@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ops panel — draft</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --surface: #171a21;
+    --surface-2: #1d222b;
+    --border: #2a2f3a;
+    --border-soft: #232833;
+    --text: #f8fafc;
+    --muted: #a7adba;
+    --dim: #737b8c;
+    --accent: #0ea5e9;
+    --success: #10b981;
+    --warn: #f59e0b;
+    --danger: #ef4444;
+    --radius: 12px;
+    --font: Inter, "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: transparent; color: var(--text); font: 12px/1.45 var(--font); font-variant-numeric: tabular-nums; }
+  .wrap { display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-start; padding: 4px 0 12px; }
+  .panel {
+    width: 372px; max-width: 100%; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 14px; padding: 13px 13px 15px; box-shadow: 0 18px 50px rgba(0,0,0,.28);
+  }
+  .panel-head { display: flex; align-items: center; gap: 9px; padding: 1px 2px 11px; border-bottom: 1px solid var(--border-soft); }
+  .mark { width: 22px; height: 22px; border-radius: 7px; background: color-mix(in oklab, var(--accent) 20%, transparent); display: grid; place-items: center; color: var(--accent); font-size: 12px; }
+  .title { font-weight: 650; letter-spacing: .01em; }
+  .sub { color: var(--dim); font-size: 10.5px; margin-top: 1px; }
+  .grow { flex: 1; }
+  .pill { display: inline-flex; align-items: center; gap: 5px; border-radius: 999px; padding: 3px 8px; font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; border: 1px solid; }
+  .pill.warn { color: var(--warn); border-color: color-mix(in oklab, var(--warn) 45%, transparent); background: color-mix(in oklab, var(--warn) 10%, transparent); }
+  .pill.ok { color: var(--success); border-color: color-mix(in oklab, var(--success) 45%, transparent); background: color-mix(in oklab, var(--success) 10%, transparent); }
+  .pill.danger { color: var(--danger); border-color: color-mix(in oklab, var(--danger) 45%, transparent); background: color-mix(in oklab, var(--danger) 10%, transparent); }
+  .dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+  section { padding: 12px 2px 0; }
+  section + section { border-top: 1px solid var(--border-soft); margin-top: 12px; }
+  h2 { margin: 0 0 8px; font-size: 10.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); display: flex; align-items: baseline; gap: 8px; }
+  h2 .count { color: var(--dim); font-weight: 500; letter-spacing: 0; text-transform: none; }
+  .hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; }
+  .big { font-size: 23px; font-weight: 680; letter-spacing: -.02em; line-height: 1.05; }
+  .big small { font-size: 12px; color: var(--muted); font-weight: 500; letter-spacing: 0; }
+  .meta { color: var(--muted); font-size: 10.5px; }
+  .meta strong { color: var(--text); font-weight: 600; }
+  .bar { height: 6px; border-radius: 999px; background: var(--surface-2); overflow: hidden; margin-top: 7px; }
+  .bar > i { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
+  .bar.warn > i { background: var(--warn); }
+  .bar.danger > i { background: var(--danger); }
+  .bar.ok > i { background: var(--success); }
+  .spark { display: block; width: 100%; height: 36px; margin-top: 7px; }
+  .caption { display: flex; justify-content: space-between; gap: 8px; color: var(--dim); font-size: 10px; margin-top: 3px; }
+  .job { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; padding: 8px 0; }
+  .job + .job { border-top: 1px solid var(--border-soft); }
+  .job .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .job .kind { color: var(--dim); font-size: 10px; margin-left: 5px; font-weight: 500; }
+  .job .nums { color: var(--muted); font-size: 10.5px; white-space: nowrap; }
+  .job .nums b { color: var(--text); font-weight: 600; }
+  .job .foot { grid-column: 1 / -1; display: flex; gap: 8px; align-items: center; color: var(--dim); font-size: 10px; }
+  .tag { border: 1px solid var(--border); border-radius: 999px; padding: 1px 6px; font-size: 9.5px; color: var(--muted); }
+  .tag.busy { color: var(--success); border-color: color-mix(in oklab, var(--success) 40%, transparent); }
+  .tag.waiting { color: var(--warn); border-color: color-mix(in oklab, var(--warn) 40%, transparent); }
+  .cores { display: grid; grid-template-columns: repeat(8, 1fr); gap: 3px; height: 26px; align-items: end; margin-top: 7px; }
+  .core { height: 100%; background: color-mix(in oklab, var(--accent) 14%, transparent); border-radius: 2px 2px 0 0; position: relative; overflow: hidden; }
+  .core > i { position: absolute; left: 0; right: 0; bottom: 0; background: var(--accent); }
+  .rows { display: grid; gap: 5px; }
+  .row { display: grid; grid-template-columns: 62px 1fr auto; gap: 7px; align-items: center; }
+  .row .label { color: var(--muted); font-size: 10.5px; }
+  .row .val { text-align: right; color: var(--muted); font-size: 10.5px; }
+  .row .val b { color: var(--text); font-weight: 600; }
+  .row .bar { margin-top: 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 10.5px; }
+  th { text-align: left; color: var(--dim); font-weight: 600; font-size: 9.5px; letter-spacing: .05em; text-transform: uppercase; padding: 0 0 5px; }
+  th.r, td.r { text-align: right; }
+  td { padding: 4px 0; border-top: 1px solid var(--border-soft); color: var(--muted); }
+  td.name { color: var(--text); max-width: 138px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  td .pid { color: var(--dim); font-size: 9.5px; margin-left: 4px; }
+  .event { display: flex; gap: 8px; align-items: baseline; padding: 5px 0; font-size: 10.5px; }
+  .event + .event { border-top: 1px solid var(--border-soft); }
+  .event .when { color: var(--dim); white-space: nowrap; font-size: 10px; }
+  .event .what { flex: 1; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .event .what b { color: var(--text); font-weight: 600; }
+  .event .reclaim { color: var(--success); font-weight: 600; white-space: nowrap; }
+  .event .failed { color: var(--danger); }
+  .status { width: 330px; max-width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 14px; padding: 13px; }
+  .status h3 { margin: 0 0 10px; font-size: 10.5px; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
+  .status .line { display: grid; grid-template-columns: 74px 1fr auto; gap: 8px; align-items: center; padding: 4px 0; }
+  .status .line .name { color: var(--muted); font-size: 10.5px; }
+  .status .line .pct { color: var(--muted); font-size: 10.5px; text-align: right; min-width: 42px; }
+  .status .line .pct.warn { color: var(--warn); }
+  .status .line .pct.danger { color: var(--danger); }
+  .status .line .bar { margin: 0; }
+  .status .foot { margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--border-soft); display: flex; justify-content: space-between; color: var(--dim); font-size: 10px; }
+  .status .foot b { color: var(--warn); font-weight: 600; }
+  .hint { color: var(--dim); font-size: 10px; margin: 0 0 8px 2px; }
+  @media (max-width: 760px) { .wrap { flex-direction: column; } .panel, .status { width: 100%; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="panel" aria-label="Ops rail panel draft">
+    <div class="panel-head">
+      <div class="mark">◈</div>
+      <div>
+        <div class="title">Ops</div>
+        <div class="sub">arpan-nitro · machine + guard</div>
+      </div>
+      <div class="grow"></div>
+      <span class="pill warn"><span class="dot"></span>Blocked</span>
+    </div>
+
+    <section>
+      <h2>OpenChamber memory <span class="count">guard</span></h2>
+      <div class="hero">
+        <div class="big">3.05 GB <small>/ 2.00 GB limit</small></div>
+        <div class="meta">idle <strong>0.1m</strong></div>
+      </div>
+      <div class="bar danger"><i style="width:100%"></i></div>
+      <div class="caption"><span>Over limit · waiting for 3 running sessions</span><span>153%</span></div>
+      <svg class="spark" viewBox="0 0 300 36" preserveAspectRatio="none" aria-label="Memory over the last hour">
+        <defs>
+          <linearGradient id="memfill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#ef4444" stop-opacity=".22"/>
+            <stop offset="1" stop-color="#ef4444" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        <path d="M0,26 L12,25 L24,26 L36,25 L48,24 L60,25 L72,24 L84,25 L96,24 L108,23 L120,24 L132,23 L144,24 L156,23 L168,22 L180,23 L192,21 L204,20 L216,22 L228,20 L240,19 L252,21 L264,20 L276,18 L288,14 L300,6 L300,36 L0,36 Z" fill="url(#memfill)"/>
+        <polyline points="0,26 12,25 24,26 36,25 48,24 60,25 72,24 84,25 96,24 108,23 120,24 132,23 144,24 156,23 168,22 180,23 192,21 204,20 216,22 228,20 240,19 252,21 264,20 276,18 288,14 300,6" fill="none" stroke="#ef4444" stroke-width="1.6" vector-effect="non-scaling-stroke"/>
+      </svg>
+      <div class="caption"><span>last hour</span><span>3 sessions · 11 processes</span></div>
+    </section>
+
+    <section>
+      <h2>Jobs <span class="count">2 tracked</span></h2>
+      <div class="job">
+        <div class="name">Python · spike.agent <span class="kind">python</span></div>
+        <div class="nums"><b>1.15 GB</b> + 1.43 GB swap</div>
+        <div class="foot"><span class="tag busy">busy</span><span>9.4% CPU</span><span class="grow"></span><span>auto-close 30m</span></div>
+      </div>
+      <div class="job">
+        <div class="name">Python · lan-proxy.py <span class="kind">python</span></div>
+        <div class="nums"><b>21 MB</b> + 0 swap</div>
+        <div class="foot"><span class="tag waiting">waiting</span><span>0.2% CPU</span><span class="grow"></span><span>closes in 30m</span></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>CPU <span class="count">8 cores</span></h2>
+      <div class="hero">
+        <div class="big">13%</div>
+        <div class="meta">load <strong>1.32 · 1.08 · 0.88</strong></div>
+      </div>
+      <div class="cores">
+        <div class="core"><i style="height:28%"></i></div><div class="core"><i style="height:18%"></i></div>
+        <div class="core"><i style="height:22%"></i></div><div class="core"><i style="height:14%"></i></div>
+        <div class="core"><i style="height:30%"></i></div><div class="core"><i style="height:16%"></i></div>
+        <div class="core"><i style="height:20%"></i></div><div class="core"><i style="height:12%"></i></div>
+      </div>
+      <div class="caption"><span>per core</span><span>GPU 0% · 280 / 4096 MB</span></div>
+    </section>
+
+    <section>
+      <h2>Memory</h2>
+      <div class="rows">
+        <div class="row"><span class="label">RAM</span><div class="bar warn"><i style="width:71%"></i></div><span class="val"><b>5.4</b> / 7.6 GB</span></div>
+        <div class="row"><span class="label">Swap</span><div class="bar"><i style="width:34%"></i></div><span class="val"><b>2.0</b> / 5.8 GB</span></div>
+        <div class="row"><span class="label">zram</span><div class="bar ok"><i style="width:29%"></i></div><span class="val"><b>4.1 GB</b> → 1.2 GB</span></div>
+      </div>
+      <div class="caption"><span>zstd · 1.8× compression</span><span>swapfile 0 used</span></div>
+    </section>
+
+    <section>
+      <h2>Processes <span class="count">top by RAM</span></h2>
+      <table>
+        <thead><tr><th>Process</th><th class="r">CPU</th><th class="r">RAM</th><th class="r">Swap</th><th class="r">GPU</th></tr></thead>
+        <tbody>
+          <tr><td class="name">python3<span class="pid">27643</span></td><td class="r">9.8%</td><td class="r">1.15 GB</td><td class="r">1.43 GB</td><td class="r">—</td></tr>
+          <tr><td class="name">openchamber<span class="pid">23511</span></td><td class="r">2.5%</td><td class="r">534 MB</td><td class="r">—</td><td class="r">—</td></tr>
+          <tr><td class="name">opencode<span class="pid">22470</span></td><td class="r">2.3%</td><td class="r">525 MB</td><td class="r">—</td><td class="r">—</td></tr>
+          <tr><td class="name">openchamber<span class="pid">67645</span></td><td class="r">4.0%</td><td class="r">334 MB</td><td class="r">—</td><td class="r">—</td></tr>
+          <tr><td class="name">cinnamon<span class="pid">1707</span></td><td class="r">0.5%</td><td class="r">199 MB</td><td class="r">—</td><td class="r">—</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>History <span class="count">last actions</span></h2>
+      <div class="event"><span class="when">5 Nov</span><span class="what"><b>Gradle daemon</b> closed automatically</span><span class="reclaim">5.1 GB</span></div>
+      <div class="event"><span class="when">4 Nov</span><span class="what"><b>OpenChamber</b> restarted · 2.19 → 1.03 GB</span><span class="reclaim">1.16 GB</span></div>
+    </section>
+  </div>
+
+  <div class="status" aria-label="Work Status section draft">
+    <h3>Ops <span style="float:right;color:var(--dim);font-weight:500;text-transform:none;letter-spacing:0">work status</span></h3>
+    <div class="line"><span class="name">CPU</span><div class="bar"><i style="width:13%"></i></div><span class="pct">13%</span></div>
+    <div class="line"><span class="name">Memory</span><div class="bar danger"><i style="width:100%"></i></div><span class="pct danger">3.05/2.00</span></div>
+    <div class="line"><span class="name">GPU</span><div class="bar"><i style="width:0%"></i></div><span class="pct">0%</span></div>
+    <div class="line"><span class="name">Jobs</span><div class="bar warn"><i style="width:100%"></i></div><span class="pct warn">2 · blocked</span></div>
+    <div class="foot"><span>guard state</span><b>over limit · waiting</b></div>
+  </div>
+</div>
+</body>
+</html>
