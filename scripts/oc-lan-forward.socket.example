@@ -1,0 +1,10 @@
+[Unit]
+Description=OpenChamber LAN forwarder socket (0.0.0.0:8080)
+Documentation=https://github.com/ArpanSM/openchamber-ops
+
+[Socket]
+ListenStream=0.0.0.0:8080
+BindIPv6Only=ipv4-only
+
+[Install]
+WantedBy=sockets.target

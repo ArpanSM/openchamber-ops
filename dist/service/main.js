@@ -4,12 +4,15 @@ import http from "node:http";
 // src/service/guard.ts
 import os from "node:os";
 import path from "node:path";
-import { readFile, stat } from "node:fs/promises";
+import { open, readFile, stat } from "node:fs/promises";
 var STATE_DIR = path.join(os.homedir(), ".local", "state", "ocguard");
 var STATE_FILE = path.join(STATE_DIR, "state.json");
 var LOG_FILE = path.join(STATE_DIR, "guard.log");
 var FRESH_MS = 9e4;
-var HISTORY_LINES = 5e3;
+var HISTORY_LINES = 2e3;
+var HISTORY_TTL_MS = 6e4;
+var MAX_LOG_BYTES = 256 * 1024;
+var historyCache = null;
 var num = (value) => {
   const result = typeof value === "number" ? value : Number(value);
   return Number.isFinite(result) ? result : null;
@@ -49,9 +52,30 @@ var readJobs = (state) => {
     }];
   });
 };
+var readTail = async () => {
+  const handle = await open(LOG_FILE, "r").catch(() => null);
+  if (!handle) return "";
+  try {
+    const info = await handle.stat();
+    const start = Math.max(0, info.size - MAX_LOG_BYTES);
+    const length = info.size - start;
+    if (length <= 0) return "";
+    const buffer = Buffer.alloc(length);
+    await handle.read(buffer, 0, length, start);
+    let text = buffer.toString("utf8");
+    if (start > 0) {
+      const newline = text.indexOf("\n");
+      text = newline === -1 ? "" : text.slice(newline + 1);
+    }
+    return text;
+  } finally {
+    await handle.close();
+  }
+};
 var readHistory = async () => {
-  const text = await readFile(LOG_FILE, "utf8").catch(() => "");
-  if (!text) return [];
+  const at = Date.now();
+  if (historyCache && at - historyCache.at < HISTORY_TTL_MS) return historyCache.events;
+  const text = await readTail();
   const events = [];
   for (const line of text.split(/\r?\n/).slice(-HISTORY_LINES)) {
     if (!line.trim()) continue;
@@ -61,13 +85,13 @@ var readHistory = async () => {
     } catch {
       continue;
     }
-    const at = Date.parse(String(record.ts ?? ""));
-    if (!Number.isFinite(at)) continue;
+    const eventAt = Date.parse(String(record.ts ?? ""));
+    if (!Number.isFinite(eventAt)) continue;
     const event = record.event;
     if (event === "restart.done") {
       events.push({
         kind: "restart",
-        at,
+        at: eventAt,
         label: "OpenChamber restarted",
         reclaimedMb: num(record.reclaimed_mb),
         beforeMb: num(record.mem_before_mb),
@@ -77,7 +101,7 @@ var readHistory = async () => {
     } else if (event === "jobs.close.done") {
       events.push({
         kind: "job-close",
-        at,
+        at: eventAt,
         label: str(record.label) ?? "Job closed",
         reclaimedMb: num(record.reclaimed_mb),
         beforeMb: num(record.before_mb),
@@ -87,7 +111,7 @@ var readHistory = async () => {
     } else if (event === "jobs.close.failed") {
       events.push({
         kind: "job-failed",
-        at,
+        at: eventAt,
         label: str(record.label) ?? "Job close failed",
         reclaimedMb: null,
         beforeMb: null,
@@ -96,7 +120,9 @@ var readHistory = async () => {
       });
     }
   }
-  return events.sort((left, right) => right.at - left.at).slice(0, 8);
+  const sorted = events.sort((left, right) => right.at - left.at).slice(0, 6);
+  historyCache = { at, events: sorted };
+  return sorted;
 };
 var readGuard = async () => {
   const empty = {
@@ -157,7 +183,8 @@ var readGuard = async () => {
 };
 
 // src/shared/stats.ts
-var SAMPLE_INTERVAL_MS = 2e3;
+var SAMPLE_INTERVAL_MS = 5e3;
+var GUARD_INTERVAL_MS = 15e3;
 var HISTORY_LENGTH = 60;
 var IDLE_STOP_MS = 3e4;
 var RETRY_UNAVAILABLE_MS = 6e4;
@@ -187,7 +214,6 @@ var busiestGpu = (gpus) => {
 
 // src/service/sampler.ts
 var PRIME_MS = 500;
-var GUARD_INTERVAL_MS = 5e3;
 var SUSTAINED_SAMPLES = 30;
 var freshSource = () => ({ value: { status: "unavailable", reason: "failed", tool: null }, lastGood: null, failures: 0, retryAt: 0 });
 var settle = (source, result, now) => {
@@ -593,6 +619,8 @@ var createSystemCollector = () => {
   let swapsCache = null;
   let tempCache = null;
   let gpuProcCache = null;
+  let gpuCache = null;
+  let processCache = null;
   const now = () => Date.now();
   return {
     prime: async () => {
@@ -605,7 +633,7 @@ var createSystemCollector = () => {
       if (!usage) return unavailable("failed");
       const load = os2.loadavg();
       const at = now();
-      if (!tempCache || at - tempCache.at >= 5e3) {
+      if (!tempCache || at - tempCache.at >= 1e4) {
         tempCache = { at, value: await readCpuTemp() };
       }
       return {
@@ -623,11 +651,11 @@ var createSystemCollector = () => {
       const info = parseMeminfo(await readText("/proc/meminfo") ?? "");
       if (!info) return unavailable("failed");
       const at = now();
-      if (!zramCache || at - zramCache.at >= 1e4) {
+      if (!zramCache || at - zramCache.at >= 3e4) {
         const zramResult = await run(["zramctl", "/usr/sbin/zramctl"], ["--bytes", "--noheadings", "/dev/zram0"]);
         zramCache = { at, value: zramResult.ok ? parseZram(zramResult.stdout) : null };
       }
-      if (!swapsCache || at - swapsCache.at >= 1e4) {
+      if (!swapsCache || at - swapsCache.at >= 3e4) {
         swapsCache = { at, value: parseSwaps(await readText("/proc/swaps") ?? "") };
       }
       return {
@@ -641,15 +669,22 @@ var createSystemCollector = () => {
       };
     },
     gpu: async () => {
+      const at = now();
+      if (gpuCache && at - gpuCache.at < 1e4) return gpuCache.value;
       const result = await run(
         ["nvidia-smi", "/usr/bin/nvidia-smi"],
         ["--query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw,clocks.sm", "--format=csv,noheader,nounits"]
       );
-      if (!result.ok) return unavailable(result.missing ? "tool-missing" : "failed", "nvidia-smi");
-      const devices = parseNvidia(result.stdout);
-      return devices.length > 0 ? { status: "ok", devices } : unavailable("no-device");
+      const value = !result.ok ? unavailable(result.missing ? "tool-missing" : "failed", "nvidia-smi") : (() => {
+        const devices = parseNvidia(result.stdout);
+        return devices.length > 0 ? { status: "ok", devices } : unavailable("no-device");
+      })();
+      gpuCache = { at, value };
+      return value;
     },
     processes: async () => {
+      const at = now();
+      if (processCache && at - processCache.at < 1e4) return processCache.value;
       const ps = await run(
         ["ps", "/usr/bin/ps"],
         ["-eo", "pid=,comm=,%cpu=,rss=,args=", "--sort=-rss"]
@@ -672,10 +707,9 @@ var createSystemCollector = () => {
           gpuSm: null,
           gpuMem: null
         });
-        if (rows.length >= 24) break;
+        if (rows.length >= 12) break;
       }
-      const at = now();
-      if (!gpuProcCache || at - gpuProcCache.at >= 6e3) {
+      if (!gpuProcCache || at - gpuProcCache.at >= 1e4) {
         const pmon = await run(["nvidia-smi", "/usr/bin/nvidia-smi"], ["pmon", "-c", "1"], 4e3);
         gpuProcCache = { at, value: pmon.ok ? parsePmon(pmon.stdout) : /* @__PURE__ */ new Map() };
       }
@@ -692,7 +726,9 @@ var createSystemCollector = () => {
           row.gpuMem = gpu.mem;
         }
       });
-      return { status: "ok", rows };
+      const value = { status: "ok", rows };
+      processCache = { at, value };
+      return value;
     }
   };
 };

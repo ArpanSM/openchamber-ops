@@ -44,7 +44,7 @@ node scripts/lan-forward.mjs
 LISTEN_PORT=8080 TARGET_PORT=57123 node scripts/lan-forward.mjs
 ```
 
-`scripts/oc-lan-forward.service.example` is a systemd user unit for keeping it running.
+`scripts/oc-lan-forward.service.example` is a systemd user unit for the Node forwarder. On systemd, the lighter option is `systemd-socket-proxyd`: use `scripts/oc-lan-forward.socket.example` and `scripts/oc-lan-forward-proxyd.service.example`. It uses about 7 MB while a connection is open and exits when idle.
 
 ![Ops on a phone-sized browser](docs/phone.png)
 
@@ -52,8 +52,8 @@ LISTEN_PORT=8080 TARGET_PORT=57123 node scripts/lan-forward.mjs
 
 A local Node service starts with the extension and listens on loopback only. The panel never touches the system; it asks the service for `/stats`.
 
-- **System, every 2 s**: CPU times from `os.cpus()`, `/proc/meminfo`, `/proc/swaps`, `zramctl`, `nvidia-smi`, `ps`, `/proc/<pid>/status`.
-- **Guard, every 5 s**: `~/.local/state/ocguard/state.json` and the tail of `~/.local/state/ocguard/guard.log`. Nothing is executed and nothing is written. If the state file is older than 90 seconds, the panel shows the guard as offline.
+- **System**: CPU and memory every 5 s; GPU and processes every 10 s; zram and swap every 30 s. CPU times come from `os.cpus()`, memory from `/proc/meminfo`, and the rest from `nvidia-smi`, `ps`, `/proc/swaps` and `zramctl`.
+- **Guard**: every 15 s it reads `~/.local/state/ocguard/state.json` and the last 256 KB of `~/.local/state/ocguard/guard.log`. History is parsed at most once a minute. Nothing is executed and nothing is written. If the state file is older than 90 seconds, the panel shows the guard as offline.
 - The service stops sampling 30 seconds after the last panel request.
 
 ## Development

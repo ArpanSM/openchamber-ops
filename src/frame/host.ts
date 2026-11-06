@@ -8,6 +8,8 @@ export type FrameContext = { state: PollState; retry: () => void };
 
 export type FrameOptions = {
   onStats?: (stats: Stats, host: HostClient) => void;
+  /** How often to poll while visible. Defaults to the shared sample interval. */
+  intervalMs?: number;
 };
 
 export const startFrame = (render: (context: FrameContext) => void, options: FrameOptions = {}): HostClient => {
@@ -22,6 +24,7 @@ export const startFrame = (render: (context: FrameContext) => void, options: Fra
       if (next.kind === 'ready') options.onStats?.(next.stats, host);
     },
     visible: () => document.visibilityState === 'visible',
+    intervalMs: options.intervalMs,
     schedule: (fn, ms) => {
       const timer = setTimeout(fn, ms);
       return () => clearTimeout(timer);

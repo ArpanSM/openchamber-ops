@@ -187,6 +187,8 @@ export const createSystemCollector = (): SystemCollector => {
   let swapsCache: { at: number; value: SwapDevice[] } | null = null;
   let tempCache: { at: number; value: number | null } | null = null;
   let gpuProcCache: { at: number; value: Map<number, GpuProc> } | null = null;
+  let gpuCache: { at: number; value: GpuStats | Unavailable } | null = null;
+  let processCache: { at: number; value: ProcessStats | Unavailable } | null = null;
 
   const now = () => Date.now();
 
@@ -202,7 +204,7 @@ export const createSystemCollector = (): SystemCollector => {
       if (!usage) return unavailable('failed');
       const load = os.loadavg();
       const at = now();
-      if (!tempCache || at - tempCache.at >= 5_000) {
+      if (!tempCache || at - tempCache.at >= 10_000) {
         tempCache = { at, value: await readCpuTemp() };
       }
       return {
@@ -221,11 +223,11 @@ export const createSystemCollector = (): SystemCollector => {
       const info = parseMeminfo((await readText('/proc/meminfo')) ?? '');
       if (!info) return unavailable('failed');
       const at = now();
-      if (!zramCache || at - zramCache.at >= 10_000) {
+      if (!zramCache || at - zramCache.at >= 30_000) {
         const zramResult = await run(['zramctl', '/usr/sbin/zramctl'], ['--bytes', '--noheadings', '/dev/zram0']);
         zramCache = { at, value: zramResult.ok ? parseZram(zramResult.stdout) : null };
       }
-      if (!swapsCache || at - swapsCache.at >= 10_000) {
+      if (!swapsCache || at - swapsCache.at >= 30_000) {
         swapsCache = { at, value: parseSwaps((await readText('/proc/swaps')) ?? '') };
       }
       return {
@@ -240,16 +242,25 @@ export const createSystemCollector = (): SystemCollector => {
     },
 
     gpu: async () => {
+      const at = now();
+      if (gpuCache && at - gpuCache.at < 10_000) return gpuCache.value;
       const result = await run(
         ['nvidia-smi', '/usr/bin/nvidia-smi'],
         ['--query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw,clocks.sm', '--format=csv,noheader,nounits'],
       );
-      if (!result.ok) return unavailable(result.missing ? 'tool-missing' : 'failed', 'nvidia-smi');
-      const devices = parseNvidia(result.stdout);
-      return devices.length > 0 ? { status: 'ok', devices } : unavailable('no-device');
+      const value: GpuStats | Unavailable = !result.ok
+        ? unavailable(result.missing ? 'tool-missing' : 'failed', 'nvidia-smi')
+        : (() => {
+            const devices = parseNvidia(result.stdout);
+            return devices.length > 0 ? { status: 'ok' as const, devices } : unavailable('no-device');
+          })();
+      gpuCache = { at, value };
+      return value;
     },
 
     processes: async () => {
+      const at = now();
+      if (processCache && at - processCache.at < 10_000) return processCache.value;
       const ps = await run(
         ['ps', '/usr/bin/ps'],
         ['-eo', 'pid=,comm=,%cpu=,rss=,args=', '--sort=-rss'],
@@ -273,11 +284,10 @@ export const createSystemCollector = (): SystemCollector => {
           gpuSm: null,
           gpuMem: null,
         });
-        if (rows.length >= 24) break;
+        if (rows.length >= 12) break;
       }
 
-      const at = now();
-      if (!gpuProcCache || at - gpuProcCache.at >= 6_000) {
+      if (!gpuProcCache || at - gpuProcCache.at >= 10_000) {
         const pmon = await run(['nvidia-smi', '/usr/bin/nvidia-smi'], ['pmon', '-c', '1'], 4_000);
         gpuProcCache = { at, value: pmon.ok ? parsePmon(pmon.stdout) : new Map<number, GpuProc>() };
       }
@@ -295,7 +305,9 @@ export const createSystemCollector = (): SystemCollector => {
         }
       });
 
-      return { status: 'ok', rows };
+      const value: ProcessStats = { status: 'ok', rows };
+      processCache = { at, value };
+      return value;
     },
   };
 };

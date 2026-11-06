@@ -1,0 +1,8 @@
+[Unit]
+Description=OpenChamber LAN forwarder (0.0.0.0:8080 -> 127.0.0.1:57123)
+Documentation=https://github.com/ArpanSM/openchamber-ops
+Requires=oc-lan-forward.socket
+After=oc-lan-forward.socket
+
+[Service]
+ExecStart=/usr/lib/systemd/systemd-socket-proxyd 127.0.0.1:57123

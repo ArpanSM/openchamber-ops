@@ -142,8 +142,8 @@ export type Stats = {
   warnings: Warning[];
 };
 
-export const SAMPLE_INTERVAL_MS = 2_000;
-export const GUARD_INTERVAL_MS = 5_000;
+export const SAMPLE_INTERVAL_MS = 5_000;
+export const GUARD_INTERVAL_MS = 15_000;
 export const HISTORY_LENGTH = 60;
 export const IDLE_STOP_MS = 30_000;
 export const RETRY_UNAVAILABLE_MS = 60_000;

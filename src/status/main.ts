@@ -123,6 +123,7 @@ const host = startFrame(({ state, retry }) => {
   }
   root.replaceChildren(...nodes);
 }, {
+  intervalMs: 10_000,
   onStats: (stats, client) => {
     const key = warningKey(stats.warnings);
     if (key === badgeKey) return;

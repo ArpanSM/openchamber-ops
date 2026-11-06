@@ -1,6 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
-import { readFile, stat } from 'node:fs/promises';
+import { open, readFile, stat } from 'node:fs/promises';
 
 import type { GuardEvent, GuardStats, Job, JobState } from '../shared/stats.ts';
 
@@ -8,7 +8,11 @@ const STATE_DIR = path.join(os.homedir(), '.local', 'state', 'ocguard');
 const STATE_FILE = path.join(STATE_DIR, 'state.json');
 const LOG_FILE = path.join(STATE_DIR, 'guard.log');
 const FRESH_MS = 90_000;
-const HISTORY_LINES = 5_000;
+const HISTORY_LINES = 2_000;
+const HISTORY_TTL_MS = 60_000;
+const MAX_LOG_BYTES = 256 * 1024;
+
+let historyCache: { at: number; events: GuardEvent[] } | null = null;
 
 const num = (value: unknown): number | null => {
   const result = typeof value === 'number' ? value : Number(value);
@@ -56,9 +60,32 @@ const readJobs = (state: Record<string, unknown>): Job[] => {
   });
 };
 
+const readTail = async (): Promise<string> => {
+  const handle = await open(LOG_FILE, 'r').catch(() => null);
+  if (!handle) return '';
+  try {
+    const info = await handle.stat();
+    const start = Math.max(0, info.size - MAX_LOG_BYTES);
+    const length = info.size - start;
+    if (length <= 0) return '';
+    const buffer = Buffer.alloc(length);
+    await handle.read(buffer, 0, length, start);
+    let text = buffer.toString('utf8');
+    if (start > 0) {
+      const newline = text.indexOf('\n');
+      text = newline === -1 ? '' : text.slice(newline + 1);
+    }
+    return text;
+  } finally {
+    await handle.close();
+  }
+};
+
 const readHistory = async (): Promise<GuardEvent[]> => {
-  const text = await readFile(LOG_FILE, 'utf8').catch(() => '');
-  if (!text) return [];
+  const at = Date.now();
+  if (historyCache && at - historyCache.at < HISTORY_TTL_MS) return historyCache.events;
+
+  const text = await readTail();
   const events: GuardEvent[] = [];
   for (const line of text.split(/\r?\n/).slice(-HISTORY_LINES)) {
     if (!line.trim()) continue;
@@ -68,13 +95,13 @@ const readHistory = async (): Promise<GuardEvent[]> => {
     } catch {
       continue;
     }
-    const at = Date.parse(String(record.ts ?? ''));
-    if (!Number.isFinite(at)) continue;
+    const eventAt = Date.parse(String(record.ts ?? ''));
+    if (!Number.isFinite(eventAt)) continue;
     const event = record.event;
     if (event === 'restart.done') {
       events.push({
         kind: 'restart',
-        at,
+        at: eventAt,
         label: 'OpenChamber restarted',
         reclaimedMb: num(record.reclaimed_mb),
         beforeMb: num(record.mem_before_mb),
@@ -84,7 +111,7 @@ const readHistory = async (): Promise<GuardEvent[]> => {
     } else if (event === 'jobs.close.done') {
       events.push({
         kind: 'job-close',
-        at,
+        at: eventAt,
         label: str(record.label) ?? 'Job closed',
         reclaimedMb: num(record.reclaimed_mb),
         beforeMb: num(record.before_mb),
@@ -94,7 +121,7 @@ const readHistory = async (): Promise<GuardEvent[]> => {
     } else if (event === 'jobs.close.failed') {
       events.push({
         kind: 'job-failed',
-        at,
+        at: eventAt,
         label: str(record.label) ?? 'Job close failed',
         reclaimedMb: null,
         beforeMb: null,
@@ -103,7 +130,9 @@ const readHistory = async (): Promise<GuardEvent[]> => {
       });
     }
   }
-  return events.sort((left, right) => right.at - left.at).slice(0, 8);
+  const sorted = events.sort((left, right) => right.at - left.at).slice(0, 6);
+  historyCache = { at, events: sorted };
+  return sorted;
 };
 
 export const readGuard = async (): Promise<GuardStats> => {

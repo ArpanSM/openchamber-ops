@@ -8,6 +8,7 @@ import {
   levelForPercent,
   RETRY_UNAVAILABLE_MS,
   FAILURES_BEFORE_UNAVAILABLE,
+  GUARD_INTERVAL_MS,
   SAMPLE_INTERVAL_MS,
   WARN_PERCENT,
   type CpuStats,
@@ -22,7 +23,6 @@ import {
 import type { SystemCollector } from './system.ts';
 
 export const PRIME_MS = 500;
-const GUARD_INTERVAL_MS = 5_000;
 const SUSTAINED_SAMPLES = 30;
 
 type Source<T> = { value: T | Unavailable; lastGood: T | null; failures: number; retryAt: number };

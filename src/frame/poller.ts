@@ -15,6 +15,8 @@ export type PollerDeps = {
   onState: (state: PollState) => void;
   visible: () => boolean;
   schedule: (fn: () => void, ms: number) => () => void;
+  /** How often to ask while visible. Defaults to the shared sample interval. */
+  intervalMs?: number;
 };
 
 const errorCode = (error: unknown): string | null => {
@@ -46,6 +48,8 @@ export const createPoller = (deps: PollerDeps): Poller => {
   let blocked = false;
   let cancel: (() => void) | null = null;
 
+  const interval = () => deps.intervalMs ?? SAMPLE_INTERVAL_MS;
+
   const next = (ms: number) => {
     cancel?.();
     cancel = deps.schedule(() => {
@@ -54,7 +58,7 @@ export const createPoller = (deps: PollerDeps): Poller => {
     }, ms);
   };
 
-  const backoff = () => Math.min(MAX_BACKOFF_MS, SAMPLE_INTERVAL_MS * 2 ** Math.max(0, failures - 1));
+  const backoff = () => Math.min(MAX_BACKOFF_MS, interval() * 2 ** Math.max(0, failures - 1));
 
   const fail = (reason: BlockedReason | null) => {
     failures += 1;
@@ -94,7 +98,7 @@ export const createPoller = (deps: PollerDeps): Poller => {
           blocked = false;
           deps.onState({ kind: 'ready', stats });
         }
-        next(SAMPLE_INTERVAL_MS);
+        next(interval());
       },
       (error: unknown) => {
         inFlight = false;
